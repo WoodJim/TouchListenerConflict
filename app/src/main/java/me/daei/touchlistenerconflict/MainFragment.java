@@ -114,21 +114,20 @@ public class MainFragment extends LazyLoadFragment {
             }
         });
 
-        grid.setOnDragStartListener(new DragGridView.OnDragStartListener() {
-            @Override
-            public void onDragStart() {
-                scroller.requestDisallowInterceptTouchEvent(true);
-                scroller.setInControl(false);
-                ((MainActivity) getContext()).setViewpagerNoSCroll(true);
-            }
-        });
-        grid.setOnDragEndListener(new DragGridView.OnDragEndListener() {
+        grid.setOnDragListener(new DragGridView.OnDragListener() {
             @Override
             public void onDragEnd() {
                 scroller.requestDisallowInterceptTouchEvent(false);
                 scroller.setInControl(true);
                 ((MainActivity) getContext()).setViewpagerNoSCroll(false);
                 grid.postInvalidate();
+            }
+
+            @Override
+            public void onDragStart() {
+                scroller.requestDisallowInterceptTouchEvent(true);
+                scroller.setInControl(false);
+                ((MainActivity) getContext()).setViewpagerNoSCroll(true);
             }
         });
 

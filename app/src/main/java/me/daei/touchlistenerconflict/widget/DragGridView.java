@@ -114,9 +114,8 @@ public class DragGridView  extends GridView{
      */
     private OnChangeListener onChangeListener;
 
-    private OnDragEndListener onDragEndListener;
+    private OnDragListener onDragListener;
 
-    private OnDragStartListener onDragStartListener;
 
     public DragGridView(Context context) {
         this(context, null);
@@ -131,28 +130,51 @@ public class DragGridView  extends GridView{
         mVibrator = (Vibrator) context.getSystemService(Context.VIBRATOR_SERVICE);
         mWindowManager = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
         mStatusHeight = getStatusHeight(context); //获取状态栏的高度
-
+        initView();
     }
 
-    private Handler mHandler = new Handler();
+    public void initView(){
+        setOnItemLongClickListener(new ItemLongClickListener());
+    }
 
-    //用来处理是否为长按的Runnable
-    private Runnable mLongClickRunnable = new Runnable() {
+    private class ItemLongClickListener implements OnItemLongClickListener{
 
         @Override
-        public void run() {
-            if (onDragStartListener != null) {
-                onDragStartListener.onDragStart();
+        public boolean onItemLongClick(AdapterView<?> parent, View view, int position, long id) {
+            if (mDragPosition == AdapterView.INVALID_POSITION || mDragPosition == getCount() - 1) {
+                return false; //最后一项更多不参与替换
+            }
+            if (onDragListener != null) {
+                onDragListener.onDragStart();
             }
             isDrag = true; //设置可以拖拽
             mVibrator.vibrate(50); //震动一下
+            //根据position获取该item所对应的View
+            mStartDragItemView = getChildAt(mDragPosition - getFirstVisiblePosition());
             mStartDragItemView.setVisibility(View.INVISIBLE);//隐藏该item
+
+            //下面这几个距离大家可以参考我的博客上面的图来理解下
+            mPoint2ItemTop = mDownY - mStartDragItemView.getTop();
+            mPoint2ItemLeft = mDownX - mStartDragItemView.getLeft();
+
+            //获取DragGridView自动向上滚动的偏移量，小于这个值，DragGridView向下滚动
+            mDownScrollBorder = getHeight() /4;
+            //获取DragGridView自动向下滚动的偏移量，大于这个值，DragGridView向上滚动
+            mUpScrollBorder = getHeight() * 3/4;
+
+            //开启mDragItemView绘图缓存
+            mStartDragItemView.setDrawingCacheEnabled(true);
+            //获取mDragItemView在缓存中的Bitmap对象
+            mDragBitmap = Bitmap.createBitmap(mStartDragItemView.getDrawingCache());
+            //这一步很关键，释放绘图缓存，避免出现重复的镜像
+            mStartDragItemView.destroyDrawingCache();
+
             //根据我们按下的点显示item镜像
             createDragImage(mDragBitmap, mDownX, mDownY);
-
-
+            return true;
         }
-    };
+    }
+
 
     /**
      * 设置回调接口
@@ -163,16 +185,14 @@ public class DragGridView  extends GridView{
     }
 
     /**
-     * 设置拖拽结束接口
+     * 设置拖拽接口
      * @param listener
      */
-    public void setOnDragEndListener(OnDragEndListener listener) {
-        this.onDragEndListener = listener;
+    public void setOnDragListener(OnDragListener listener) {
+        this.onDragListener = listener;
     }
 
-    public void setOnDragStartListener(OnDragStartListener listener) {
-        this.onDragStartListener = listener;
-    }
+
 
     /**
      * 设置响应拖拽的毫秒数，默认是1000毫秒
@@ -182,68 +202,68 @@ public class DragGridView  extends GridView{
         this.dragResponseMS = dragResponseMS;
     }
 
-    @Override
-    public boolean dispatchTouchEvent(MotionEvent ev) {
-        switch(ev.getAction()){
-            case MotionEvent.ACTION_DOWN:
-                mDownX = (int) ev.getX();
-                mDownY = (int) ev.getY();
-
-                //根据按下的X,Y坐标获取所点击item的position
-                mDragPosition = pointToPosition(mDownX, mDownY);
-
-
-                if (mDragPosition == AdapterView.INVALID_POSITION || mDragPosition == getCount() - 1) {
-                    return super.dispatchTouchEvent(ev); //最后一项更多不参与替换
-                }
-
-                //使用Handler延迟dragResponseMS执行mLongClickRunnable
-                mHandler.postDelayed(mLongClickRunnable, dragResponseMS);
-
-                //根据position获取该item所对应的View
-                mStartDragItemView = getChildAt(mDragPosition - getFirstVisiblePosition());
-
-                //下面这几个距离大家可以参考我的博客上面的图来理解下
-                mPoint2ItemTop = mDownY - mStartDragItemView.getTop();
-                mPoint2ItemLeft = mDownX - mStartDragItemView.getLeft();
-
-                mOffset2Top = (int) (ev.getRawY() - mDownY);
-                mOffset2Left = (int) (ev.getRawX() - mDownX);
-
-                //获取DragGridView自动向上滚动的偏移量，小于这个值，DragGridView向下滚动
-                mDownScrollBorder = getHeight() /4;
-                //获取DragGridView自动向下滚动的偏移量，大于这个值，DragGridView向上滚动
-                mUpScrollBorder = getHeight() * 3/4;
-
-
-
-                //开启mDragItemView绘图缓存
-                mStartDragItemView.setDrawingCacheEnabled(true);
-                //获取mDragItemView在缓存中的Bitmap对象
-                mDragBitmap = Bitmap.createBitmap(mStartDragItemView.getDrawingCache());
-                //这一步很关键，释放绘图缓存，避免出现重复的镜像
-                mStartDragItemView.destroyDrawingCache();
-
-                break;
-
-            case MotionEvent.ACTION_MOVE:
-                int moveX = (int)ev.getX();
-                int moveY = (int) ev.getY();
-                //如果我们在按下的item上面移动，只要不超过item的边界我们就不移除mRunnable
-                if(!isTouchInItem(mStartDragItemView, moveX, moveY)){
-                    mHandler.removeCallbacks(mLongClickRunnable);
-                    mHandler.removeCallbacks(mScrollRunnable);
-                }
-
-                break;
-            case MotionEvent.ACTION_UP:
-            case MotionEvent.ACTION_CANCEL:
-                mHandler.removeCallbacks(mLongClickRunnable);
-                mHandler.removeCallbacks(mScrollRunnable);
-                break;
-        }
-        return super.dispatchTouchEvent(ev);
-    }
+//    @Override
+//    public boolean dispatchTouchEvent(MotionEvent ev) {
+//        switch(ev.getAction()){
+//            case MotionEvent.ACTION_DOWN:
+//                mDownX = (int) ev.getX();
+//                mDownY = (int) ev.getY();
+//
+//                //根据按下的X,Y坐标获取所点击item的position
+//                mDragPosition = pointToPosition(mDownX, mDownY);
+//
+//
+//                if (mDragPosition == AdapterView.INVALID_POSITION || mDragPosition == getCount() - 1) {
+//                    return super.dispatchTouchEvent(ev); //最后一项更多不参与替换
+//                }
+//
+//                //使用Handler延迟dragResponseMS执行mLongClickRunnable
+//                mHandler.postDelayed(mLongClickRunnable, dragResponseMS);
+//
+//                //根据position获取该item所对应的View
+//                mStartDragItemView = getChildAt(mDragPosition - getFirstVisiblePosition());
+//
+//                //下面这几个距离大家可以参考我的博客上面的图来理解下
+//                mPoint2ItemTop = mDownY - mStartDragItemView.getTop();
+//                mPoint2ItemLeft = mDownX - mStartDragItemView.getLeft();
+//
+//                mOffset2Top = (int) (ev.getRawY() - mDownY);
+//                mOffset2Left = (int) (ev.getRawX() - mDownX);
+//
+//                //获取DragGridView自动向上滚动的偏移量，小于这个值，DragGridView向下滚动
+//                mDownScrollBorder = getHeight() /4;
+//                //获取DragGridView自动向下滚动的偏移量，大于这个值，DragGridView向上滚动
+//                mUpScrollBorder = getHeight() * 3/4;
+//
+//
+//
+//                //开启mDragItemView绘图缓存
+//                mStartDragItemView.setDrawingCacheEnabled(true);
+//                //获取mDragItemView在缓存中的Bitmap对象
+//                mDragBitmap = Bitmap.createBitmap(mStartDragItemView.getDrawingCache());
+//                //这一步很关键，释放绘图缓存，避免出现重复的镜像
+//                mStartDragItemView.destroyDrawingCache();
+//
+//                break;
+//
+//            case MotionEvent.ACTION_MOVE:
+//                int moveX = (int)ev.getX();
+//                int moveY = (int) ev.getY();
+//                //如果我们在按下的item上面移动，只要不超过item的边界我们就不移除mRunnable
+//                if(!isTouchInItem(mStartDragItemView, moveX, moveY)){
+//                    mHandler.removeCallbacks(mLongClickRunnable);
+//                    mHandler.removeCallbacks(mScrollRunnable);
+//                }
+//
+//                break;
+//            case MotionEvent.ACTION_UP:
+//            case MotionEvent.ACTION_CANCEL:
+//                mHandler.removeCallbacks(mLongClickRunnable);
+//                mHandler.removeCallbacks(mScrollRunnable);
+//                break;
+//        }
+//        return super.dispatchTouchEvent(ev);
+//    }
 
     public boolean isCanDrag() {
         return isCanDrag;
@@ -278,6 +298,14 @@ public class DragGridView  extends GridView{
 
     @Override
     public boolean onTouchEvent(MotionEvent ev) {
+        if(ev.getAction()==MotionEvent.ACTION_DOWN){
+            mDownX = (int) ev.getX();
+            mDownY = (int) ev.getY();
+            mOffset2Top = (int) (ev.getRawY() - mDownY);
+            mOffset2Left = (int) (ev.getRawX() - mDownX);
+
+            mDragPosition = pointToPosition(mDownX, mDownY);
+        }
         if(isDrag && mDragImageView != null){
             switch(ev.getAction()){
                 case MotionEvent.ACTION_MOVE:
@@ -347,7 +375,7 @@ public class DragGridView  extends GridView{
         }
 
         //GridView自动滚动
-        mHandler.post(mScrollRunnable);
+//        mHandler.post(mScrollRunnable);
     }
 
 
@@ -356,30 +384,30 @@ public class DragGridView  extends GridView{
      * 当moveY的值小于向下滚动的边界值，触犯GridView自动向下滚动
      * 否则不进行滚动
      */
-    private Runnable mScrollRunnable = new Runnable() {
-
-        @Override
-        public void run() {
-            int scrollY;
-            if(moveY > mUpScrollBorder){
-                scrollY = speed;
-                mHandler.postDelayed(mScrollRunnable, 25);
-            }else if(moveY < mDownScrollBorder){
-                scrollY = -speed;
-                mHandler.postDelayed(mScrollRunnable, 25);
-            }else{
-                scrollY = 0;
-                mHandler.removeCallbacks(mScrollRunnable);
-            }
-
-            //当我们的手指到达GridView向上或者向下滚动的偏移量的时候，可能我们手指没有移动，但是DragGridView在自动的滚动
-            //所以我们在这里调用下onSwapItem()方法来交换item
-            onSwapItem(moveX, moveY);
-
-
-            smoothScrollBy(scrollY, 10);
-        }
-    };
+//    private Runnable mScrollRunnable = new Runnable() {
+//
+//        @Override
+//        public void run() {
+//            int scrollY;
+//            if(moveY > mUpScrollBorder){
+//                scrollY = speed;
+//                mHandler.postDelayed(mScrollRunnable, 25);
+//            }else if(moveY < mDownScrollBorder){
+//                scrollY = -speed;
+//                mHandler.postDelayed(mScrollRunnable, 25);
+//            }else{
+//                scrollY = 0;
+//                mHandler.removeCallbacks(mScrollRunnable);
+//            }
+//
+//            //当我们的手指到达GridView向上或者向下滚动的偏移量的时候，可能我们手指没有移动，但是DragGridView在自动的滚动
+//            //所以我们在这里调用下onSwapItem()方法来交换item
+//            onSwapItem(moveX, moveY);
+//
+//
+//            smoothScrollBy(scrollY, 10);
+//        }
+//    };
 
 
     /**
@@ -417,8 +445,8 @@ public class DragGridView  extends GridView{
             view.setVisibility(View.VISIBLE);
         }
         removeDragImage();
-        if (onDragEndListener != null) {
-            onDragEndListener.onDragEnd();
+        if (onDragListener != null) {
+            onDragListener.onDragEnd();
         }
     }
 
@@ -464,24 +492,23 @@ public class DragGridView  extends GridView{
         void onChange(int from, int to);
     }
 
-    public interface OnDragEndListener {
+    public interface OnDragListener {
         /**
          * 当拖拽结束时调用
          */
         void onDragEnd();
-    }
-
-    public interface OnDragStartListener {
         /**
          * 当拖拽结束时调用
          */
         void onDragStart();
     }
 
+
+
     @Override
     protected void onMeasure(int widthMeasureSpec, int heightMeasureSpec) {
-        int expandSpec = View.MeasureSpec.makeMeasureSpec(
-                Integer.MAX_VALUE >> 2, View.MeasureSpec.AT_MOST);//1.精确模式（MeasureSpec.EXACTLY） 2.最大模式（MeasureSpec.AT_MOST） 3.未指定模式（MeasureSpec.UNSPECIFIED）
+        int expandSpec = MeasureSpec.makeMeasureSpec(
+                Integer.MAX_VALUE >> 2, MeasureSpec.AT_MOST);//1.精确模式（MeasureSpec.EXACTLY） 2.最大模式（MeasureSpec.AT_MOST） 3.未指定模式（MeasureSpec.UNSPECIFIED）
         super.onMeasure(widthMeasureSpec, expandSpec);
     }
 }
